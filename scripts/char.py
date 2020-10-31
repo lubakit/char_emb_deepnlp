@@ -4,7 +4,7 @@ DISCLAMER: the code above uses assignment 2 parts made with Nico, examples from 
 including tokenization and pre-processing : http://digtime.cn/articles/222/ai-for-trading-character-level-lstm-in-pytorch-98
 character embeddings based on word embeddings from pytorch website, https://towardsdatascience.com/implementing-word2vec-in-pytorch-skip-gram-model-e6bae040d2fb
 
-Some parts made by the project partner Karina Hensel were changed and imported as functions or taken and changed for more compatibility for the planned concatenating
+Some parts made by the project partner Karina Hensel were changed and imported as functions or taken and changed for more compatibility for the planned but not zet realised concatenating
 """
 
 
@@ -23,13 +23,13 @@ from pathlib import Path
 
 """
 # Data and hyperparameters in case custom-made embeddings would not work
-# embeddings_file = '../Data/embeddings/en/glove.6B.100d.bin'
 
+#File we have our embeddings from. They are pretrained and taken directly from character pretrained embeddings https://github.com/minimaxir/char-embeddings/blob/master/glove.840B.300d-char.txt (see file charemb.txt)
 embeddings_file = '../data/embeddings/en/charemb.txt'
 data_dir = '../data/conll2003/en/'
 model_dir = '../models/'
 
-#from Karinas code
+#from word enmbeddings code
 
 def prepare_emb(sent, tags, chars_to_ix, tags_to_ix):
     ch_idxs, tag_idxs = [], []
@@ -49,7 +49,7 @@ def prepare_emb(sent, tags, chars_to_ix, tags_to_ix):
 
 """
 
-"""From here no pretrained character embeddings are used. Path to the file with sentences from the corpus without labels"""
+"""From here no pretrained character embeddings are used. Path to the file with sentences from the corpus without labels. The corpus we create the model for is on the same folder"""
 pathtodirectory = Path("C:\\Users\\LubaC\\Desktop\\character_emb\\scripts\\data\\conll2003\\en")
 filepath = pathtodirectory / "words.txt"
 
@@ -117,7 +117,7 @@ def one_hot_encoding(arr, n_labels):
 #    emb = nn.Embedding(depth, depth)
 #    emb.weight.data = torch.eye(depth)
 #    return emb(batch)
-#fron pytorch website, not needed
+#fron pytorch website,  how to create embeddings
 #word_to_ix = {"hello": 0, "world": 1}
 #embeds = nn.Embedding(85, 5)  # 85 chars in vocab, 5 dimensional embeddings
 #lookup_tensor = torch.tensor([word_to_ix["hello"]], dtype=torch.long)
@@ -156,6 +156,7 @@ class LSTMModel(nn.Module):
         embeds = self.embeddings(inputs)    # shape = [bz, max_len, embed_dim]
         lstm_out, (ht, ct) = self.lstm(embeds)
         out = self.linear(ht[-1])   #ht[-1]
+        #input od the last layer is given to the softmax layer that assigns probabiliies and chooses the most likely tag
         out = F.log_softmax(out, dim=1)
         if self.first:
             self.first = False
