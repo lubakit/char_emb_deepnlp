@@ -1,6 +1,6 @@
 
 """
-DISCLAMER: the code above uses assignment 2 parts made with Nico, examples from existing projects and explanatory posts, mainly not taking te code directly, but builsing the same structures
+DISCLAMER: the code above uses assignment 3 parts made with Nico, examples from existing projects and explanatory posts, mainly not taking te code directly, but builsing the same structures
 including tokenization and pre-processing : http://digtime.cn/articles/222/ai-for-trading-character-level-lstm-in-pytorch-98
 character embeddings based on word embeddings from pytorch website, https://towardsdatascience.com/implementing-word2vec-in-pytorch-skip-gram-model-e6bae040d2fb
 
