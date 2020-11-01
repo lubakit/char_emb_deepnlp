@@ -1,10 +1,11 @@
 
 """
-DISCLAMER: the code above uses assignment 3 parts made with Nico, examples from existing projects and explanatory posts, mainly not taking te code directly, but builsing the same structures
+DISCLAMER: the code above uses assignment 3 parts, examples from existing projects and explanatory posts, mainly not taking te code directly, but builsing the same structures
 including tokenization and pre-processing : http://digtime.cn/articles/222/ai-for-trading-character-level-lstm-in-pytorch-98
 character embeddings based on word embeddings from pytorch website, https://towardsdatascience.com/implementing-word2vec-in-pytorch-skip-gram-model-e6bae040d2fb
 
 Some parts made by the project partner Karina Hensel were changed and imported as functions or taken and changed for more compatibility for the planned but not zet realised concatenating
+As it was not possible to test the code only the building of the embeddings(not realised after because of no technical possibiity) and original code is changed back to original slightly modified Karinas code
 """
 
 
@@ -15,13 +16,33 @@ from torch import nn
 import torch.nn.functional as F
 import codecs
 import math
-from utils import *
+
 
 import matplotlib.pyplot as plt
 from pathlib import Path
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn import Module, Embedding, LSTM, Linear, NLLLoss, Dropout, CrossEntropyLoss
+import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
+import torchtext
+from torchtext import data
 
+import gensim
+from gensim.scripts.glove2word2vec import glove2word2vec
 
-"""
+import numpy as np
+import os
+import math
+from utils import *
+
+import numpy as np
+import os
+import math
+from model.utils import *
+from model.model import Model
+
 # Data and hyperparameters in case custom-made embeddings would not work
 
 #File we have our embeddings from. They are pretrained and taken directly from character pretrained embeddings https://github.com/minimaxir/char-embeddings/blob/master/glove.840B.300d-char.txt (see file charemb.txt)
@@ -47,9 +68,9 @@ def prepare_emb(sent, tags, chars_to_ix, tags_to_ix):
 
     return torch.tensor(ch_idxs, dtype=torch.long), torch.tensor(tag_idxs, dtype=torch.long)
 
-"""
 
-"""From here no pretrained character embeddings are used. Path to the file with sentences from the corpus without labels. The corpus we create the model for is on the same folder"""
+
+"""does not work. From here no pretrained character embeddings are used. Path to the file with sentences from the corpus without labels. The corpus we create the model for is on the same folder"""
 pathtodirectory = Path("C:\\Users\\LubaC\\Desktop\\character_emb\\scripts\\data\\conll2003\\en")
 filepath = pathtodirectory / "words.txt"
 
@@ -126,135 +147,181 @@ def one_hot_encoding(arr, n_labels):
 
 
 
-#hyperparameters synchronised with those in the word model
-N_EPOCHS = 100
-LEARNING_RATE = 0.1
-REPORT_EVERY = 5
-EMBEDDING_DIM = 30
-HIDDEN_DIM = 20
-BATCH_SIZE = 32
-N_LAYERS = 2
-max_len = 25 # for padding
 
 
 #Character LSTM
 class LSTMModel(nn.Module):
-    def __init__(self,
-                 embedding_dim,#number of the dimensions for each character
-                 character_set_size,
-                 n_layers,
-                 hidden_dim,
-                 n_classes): #our classification
-        super(LSTMModel, self).__init__()
-        self.embeddings = nn.Embedding(character_set_size, embedding_dim)#character_set_size stands for characters number
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers = 2, batch_first = True)
-        self.linear = nn.Linear(hidden_dim, n_classes)
-        self.dropout = nn.Dropout(0.5) #if dropout else None
-        self.first = True
+    def __init__(self, pretrained_embeddings, hidden_size, vocab_size, n_classes):
+        
+        super(Model, self).__init__()
+        
+        # Vocabulary size
+        self.vocab_size = pretrained_embeddings.shape[0]
+        # Embedding dimensionality
+        self.embedding_size = pretrained_embeddings.shape[1]
+        # Number of hidden units
+        self.hidden_size = hidden_size
+        
+        # Embedding layer
+        self.embedding = Embedding(self.vocab_size, self.embedding_size)
+        
+        # Dropout
+        self.dropout = Dropout(p=0.5, inplace=False)
+        # Hidden layer (300, 20)
+        self.lstm = LSTM(self.embedding_size, self.hidden_size, num_layers=2)
+        # Final prediction layer
+        self.hidden2tag = Linear(self.hidden_size, n_classes)#, bias=True)
+    
+    def forward(self, x):
+        # Retrieve word embedding for input token
+        emb = self.embedding(x)
+        # Apply dropout
+        dropout = self.dropout(emb)
+        # Hidden layer
+        h, _ = self.lstm(emb.view(len(x), 1, -1))
+        # Prediction
+        pred = self.hidden2tag(h.view(len(x), -1))
+        
+        return F.log_softmax(pred, dim=1)
 
-    def forward(self, inputs):
-        embeds = self.embeddings(inputs)    # shape = [bz, max_len, embed_dim]
-        lstm_out, (ht, ct) = self.lstm(embeds)
-        out = self.linear(ht[-1])   #ht[-1]
-        #input od the last layer is given to the softmax layer that assigns probabiliies and chooses the most likely tag
-        out = F.log_softmax(out, dim=1)
-        if self.first:
-            self.first = False
-            print('embeds.shape = ', embeds.shape)
-            print('lstm_out.shape = ',lstm_out.shape)
-            print('ht.shape = ', ht.shape)
-            print('out.shape = ', out.shape)
-        return out
+#Hyperparameteres and training
 
-    # --- auxilary functions ---
-    def get_minibatch(minibatchwords, chars, classes, max_len):
-        # minibatchwords is a list of dicts
-        # max_len - word-len will be padded
-        mb_x = torch.stack(
-            [F.pad(elem['TENSOR'], pad=(0, max_len - len(elem['TENSOR'])), mode='constant', value=0) for elem in
-             minibatchwords])
-        mb_y = torch.Tensor([label_to_idx(elem['LANGUAGE'], languages) for elem in minibatchwords])
-        return mb_x, mb_y
+embeddings_file = '../data/embeddings/en/charemb.txt'
+data_dir = '../data/conll2003/en/'
+model_dir = '../model/'
+model = 'model_char.pkl'
 
-    def label_to_idx(lan, classes):
-        languages_ordered = list(classes)
-        languages_ordered.sort()
-        return torch.LongTensor([languages_ordered.index(lan)])
-
-    def get_word_length(word_ex):
-        return len(word_ex['WORD'])
-
-    def evaluate(dataset, model, eval_batch_size, chars, classes):
-        correct = 0
-        first = False
-
-        for i in range(0, len(dataset), eval_batch_size):
-            minibatchwords = dataset[i:i + eval_batch_size]
-            mb_x, mb_y = get_minibatch(minibatchwords, chars, classes, max_len)
-            model.zero_grad()
-            y_pred = model(mb_x)
-            correct += (y_pred.argmax(1) == mb_y).sum().item()
-
-            if first:
-                first = False
-                print(mb_y)
-                print(y_pred)
-
-        return correct * 100.0 / len(dataset)
-
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,  momentum=0.6)
-    loss_function = nn.NLLLoss()
-
-
-    # --- training loop ---
-    for epoch in range(N_EPOCHS):
+if __name__=='__main__':
+    # Load data
+    data = read_conll_datasets(data_dir)
+    gensim_embeds = gensim.models.KeyedVectors.load_word2vec_format(embeddings_file, encoding='utf8')
+    pretrained_embeds = gensim_embeds.vectors 
+    
+    # To convert words in the input to indices of the embeddings matrix:
+    char_to_idx = {char: i for i, word in enumerate(gensim_embeds.vocab.keys())}
+    
+    # Hyperparameters
+    # Number of output classes (9)
+    n_classes = len(TAG_INDICES)
+    # Epochs
+    n_epochs = 1
+    # Batch size (currently not used)
+    batch_size = 32
+    report_every = 1
+    verbose = True
+    
+    # Set up and initialize model
+    model = Model(pretrained_embeds, 100, len(char_to_idx), n_classes)
+    loss_function = NLLLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.6)
+    
+    # Training loop
+    for e in range(n_epochs+1):
         total_loss = 0
-
-        #shuffling
-        shuffle(trainset)
-
-
-        # Sort od the raining set according to word-length,
-        # so that similar-length words end up near each other
-        #
-
-        for i in range(0,len(trainset),BATCH_SIZE):   # 1 --> len(trainset)
-            minibatchwords = trainset[i:i+BATCH_SIZE]
-
-            #print(minibatchwords)
-
-            mb_x, mb_y = get_minibatch(minibatchwords, chars, classes, max_len)
-            mb_y = mb_y.type(torch.LongTensor)
-
-            # WRITE CODE HERE
+        for sent in data["train"][5:10]:
+            
+            # (1) Set gradient to zero for new example
             model.zero_grad()
-            y_pred = model(mb_x)
+            
+            # (2) Encode sentence and tag sequence as sequences of indices
+            input_sent,  gold_tags = prepare_emb(sent["TOKENS"], sent["NE"], word_to_idx, TAG_INDICES)
+            
+            # (3) Predict tags (sentence by sentence)
+            if len(input_sent) > 0:
+                pred_scores = model(input_sent)
+                
+                # (4) Compute loss and do backward step
+                loss = loss_function(pred_scores, gold_tags)
+                loss.backward()
+              
+                # (5) Optimize parameter values
+                optimizer.step()
+          
+                # (6) Accumulate loss
+                total_loss += loss
+        if ((e+1) % report_every) == 0:
+            print('epoch: %d, loss: %.4f' % (e, total_loss*100/len(data['train'])))
+            
+    # Save the trained model
+    save_model(model, 'model_char.pkl')
 
-            #mb_y = mb_y.unsqueeze(dim=0)
-            #out = out.unsqueeze(dim=0)
+running_loss += loss.item()
+        if i % 1000 == 999:    # every 1000 mini-batches...
 
-            #print(mb_y)
-            #print(out)
-
-
-            loss = loss_function(y_pred, mb_y)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-
-        print('epoch: %d, loss: %.4f' % ((epoch+1), total_loss))
-
-        if ((epoch+1) % REPORT_EVERY) == 0:
-            train_acc = evaluate(trainset,model,BATCH_SIZE,chars,classes)
-            dev_acc = evaluate(data['dev'],model,BATCH_SIZE,chars,classes)
-            print('epoch: %d, loss: %.4f, train acc: %.2f%%, dev acc: %.2f%%' %
-                  (epoch+1, total_loss, train_acc, dev_acc))
+            # ...log the running loss
+            writer.add_scalar('training loss',
+                            running_loss / 1000,
+                            epoch * len(data['train'] + i)
 
 
-    # --- test ---
-    test_acc = evaluate(data['test'],model,BATCH_SIZE,character_map,languages)
-    print('test acc: %.2f%%' % (test_acc))
+data_dir = '../data/conll2003/en/'
+model_dir = '../model/'
+model = 'm1.pkl'
+
+if __name__=='__main__':
+    # Load data
+    data = read_conll_datasets(data_dir)
+    gensim_embeds = gensim.models.KeyedVectors.load_word2vec_format(embeddings_file, encoding='utf8')
+    pretrained_embeds = gensim_embeds.vectors 
+    
+    # To convert words in the input to indices of the embeddings matrix:
+    word_to_idx = {word: i for i, word in enumerate(gensim_embeds.vocab.keys())}
+    
+    # Hyperparameters
+    # Number of output classes (9)
+    n_classes = len(TAG_INDICES)
+    # Epochs
+    n_epochs = 1
+    # Batch size (currently not used)
+    batch_size = 32
+    report_every = 1
+    verbose = True
+    
+    # Set up and initialize model
+    model = Model(pretrained_embeds, 100, len(word_to_idx), n_classes)
+    loss_function = NLLLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.6)
+    
+    # Training loop
+    for e in range(n_epochs+1):
+        total_loss = 0
+        for sent in data["train"][5:10]:
+            
+            # (1) Set gradient to zero for new example: Set gradients to zero before pass
+            model.zero_grad()
+            
+            # (2) Encode sentence and tag sequence as sequences of indices
+            input_sent,  gold_tags = prepare_emb(sent["TOKENS"], sent["NE"], word_to_idx, TAG_INDICES)
+            
+            # (3) Predict tags (sentence by sentence)
+            if len(input_sent) > 0:
+                pred_scores = model(input_sent)
+                
+                # (4) Compute loss and do backward step
+                loss = loss_function(pred_scores, gold_tags)
+                loss.backward()
+              
+                # (5) Optimize parameter values
+                optimizer.step()
+          
+                # (6) Accumulate loss
+                total_loss += loss
+        if ((e+1) % report_every) == 0:
+            print('epoch: %d, loss: %.4f' % (e, total_loss*100/len(data['train'])))
+            
+    # Save the trained model
+    save_model(model, 'm1.pkl')
+
+running_loss += loss.item()
+        if i % 1000 == 999:    # every 1000 mini-batches...
+
+            # ...log the running loss
+            writer.add_scalar('training loss',
+                            running_loss / 1000,
+                            epoch * len(data['train'] + i)
+
+
 
 
     ## Merge
-     #   merged = torch.cat([word_embeds.view(), char_lvl[-1].view()], dim=2)
+     #   merged = torch.cat([word_embeds.view(), char.view()], dim=2)
